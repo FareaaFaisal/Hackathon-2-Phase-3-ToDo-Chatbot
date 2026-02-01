@@ -7,12 +7,17 @@ import TaskCard from './TaskCard';
 
 interface TaskListProps {
   tasks: Task[];
-  onToggleComplete: (taskId: string, completed: boolean) => void;
+  onToggleComplete: (taskId: string | number, completed: boolean) => void;
   onEdit: (task: Task) => void;
-  onDelete: (taskId: string) => void;
+  onDelete: (taskId: string | number) => void;
 }
 
-const TaskList: React.FC<TaskListProps> = ({ tasks, onToggleComplete, onEdit, onDelete }) => {
+const TaskList: React.FC<TaskListProps> = ({
+  tasks,
+  onToggleComplete,
+  onEdit,
+  onDelete,
+}) => {
   if (tasks.length === 0) {
     return (
       <div className="text-center p-6 text-gray-500 bg-white rounded-lg shadow-md">
@@ -28,9 +33,9 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, onToggleComplete, onEdit, on
         <TaskCard
           key={task.id}
           task={task}
-          onToggleComplete={onToggleComplete}
+          onToggleComplete={onToggleComplete} 
           onEdit={onEdit}
-          onDelete={onDelete}
+          onDelete={onDelete} 
         />
       ))}
     </div>

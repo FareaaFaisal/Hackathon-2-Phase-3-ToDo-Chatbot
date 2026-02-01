@@ -1,0 +1,123 @@
+openapi: 3.0.0
+info:
+  title: AI-Powered Todo Chatbot API
+  version: 1.0.0
+  description: API for the AI-Powered Todo Chatbot to interact with user tasks and manage conversations.
+
+servers:
+  - url: /api
+    description: Base path for chatbot related API endpoints
+
+paths:
+  /{user_id}/chat:
+    post:
+      summary: Send a message to the AI Chatbot and get a response.
+      parameters:
+        - in: path
+          name: user_id
+          schema:
+            type: integer
+          required: true
+          description: The ID of the user interacting with the chatbot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversation_id:
+                  type: integer
+                  format: int64
+                  description: Optional ID of the existing conversation. If not provided, a new conversation will be started.
+                  nullable: true
+                message:
+                  type: string
+                  description: The user's message to the chatbot.
+              required:
+                - message
+      responses:
+        '200':
+          description: Successful response from the chatbot.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation_id:
+                    type: integer
+                    format: int64
+                    description: The ID of the conversation.
+                  response:
+                    type: string
+                    description: The AI's natural language response.
+                  tool_calls:
+                    type: array
+                    description: Optional list of tool calls made by the AI.
+                    items:
+                      type: object
+                      properties:
+                        tool_name:
+                          type: string
+                        args:
+                          type: object
+                required:
+                  - conversation_id
+                  - response
+        '401':
+          description: Unauthorized - Invalid or missing JWT token.
+        '404':
+          description: User not found.
+        '500':
+          description: Internal server error.
+
+components:
+  schemas:
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - user_id
+        - created_at
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        conversation_id:
+          type: integer
+          format: int64
+        sender_type:
+          type: string
+          enum: [user, ai]
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        tool_calls:
+          type: array
+          items:
+            type: object
+            properties:
+              tool_name:
+                type: string
+              args:
+                type: object
+      required:
+        - id
+        - conversation_id
+        - sender_type
+        - content
+        - timestamp

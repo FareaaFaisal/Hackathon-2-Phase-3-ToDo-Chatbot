@@ -36,3 +36,9 @@ Thumbs.db
 *.tmp
 *.swp
 coverage/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

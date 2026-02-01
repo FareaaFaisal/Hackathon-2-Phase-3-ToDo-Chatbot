@@ -10,3 +10,4 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
     tasks: List["Task"] = Relationship(back_populates="owner")
+    conversations: List["Conversation"] = Relationship(back_populates="user")

@@ -151,12 +151,17 @@ const deleteTask = async (task: Task) => {
             Add Task
           </Button>
             
-             <Button onClick={() => {
-            localStorage.removeItem('token'); // or clear cookie/session
-            window.location.href = '/login';
-          }} className="bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold flex items-center pl-[-200px]">
-            Logout
-          </Button></div>
+             <Button 
+  onClick={() => {
+    localStorage.clear();     // ✅ clears token + user data
+    window.location.href = '/login';
+  }} className="bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold flex items-center"
+>
+  Logout
+</Button>
+
+          
+          </div>
          
           
 

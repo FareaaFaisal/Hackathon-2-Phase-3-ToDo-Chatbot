@@ -206,5 +206,11 @@ Wait for consent; never auto-create ADRs. Group related decisions (stacks, authe
 - `history/adr/` — Architecture Decision Records
 - `.specify/` — SpecKit Plus templates and scripts
 
+## Project-Specific Tools and Technologies
+
+- **Cohere API**: For natural language understanding, intent recognition, and response generation in the AI Chatbot.
+- **ChatKit**: Frontend component library for building the chat user interface.
+- **MCP (Machine-Orchestrated Process) Server**: Facilitates structured interaction between the AI agent and backend task management tools.
+
 ## Code Standards
 See `.specify/memory/constitution.md` for code quality, testing, performance, security, and architecture principles.

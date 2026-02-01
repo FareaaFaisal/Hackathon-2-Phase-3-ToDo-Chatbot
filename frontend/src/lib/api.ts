@@ -1,7 +1,7 @@
 // frontend/src/lib/api.ts
 import { getAuthToken, removeAuthToken } from './auth';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = 'https://fareaafaisal-phase2-todo.hf.space/api/v1';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
