@@ -1,36 +1,66 @@
-// frontend/src/lib/chatApi.ts
-import { getAuthToken } from './auth';
+// frontend/src/lib/api.ts
+import { getAuthToken, removeAuthToken } from './auth';
 
-export interface ChatResponse {
-  conversation_id: number;
-  response: string;
-  tool_calls?: Array<{ tool_name: string; args: Record<string, any> }>;
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+
+interface RequestOptions extends Omit<RequestInit, 'body'> {
+  method?: HttpMethod;
+  body?: unknown; // Can be any type, JSON.stringified
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
-export async function sendMessage(
-  message: string,
-  conversationId?: number
-): Promise<ChatResponse> {
+async function apiRequest<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const token = getAuthToken();
 
-  const res = await fetch(`${API_BASE_URL}/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
-      message,
-      conversation_id: conversationId,
-    }),
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || 'Chat failed');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
-  return res.json();
+  const config: RequestInit = {
+    ...options,
+    headers,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  };
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+
+  // Handle unauthorized
+  if (response.status === 401) {
+    removeAuthToken();
+    throw new Error('Unauthorized: Session expired or invalid token.');
+  }
+
+  // Handle other errors
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(errorData.message || 'Something went wrong with the API request.');
+  }
+
+  // Handle DELETE or No Content responses
+  if (response.status === 204) {
+    return undefined as unknown as T; // No JSON body
+  }
+
+  // Parse JSON for normal responses
+  return response.json() as Promise<T>;
 }
+
+export const api = {
+  get: <T>(endpoint: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    apiRequest<T>(endpoint, { method: 'GET', ...options }),
+
+  post: <T>(endpoint: string, body: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    apiRequest<T>(endpoint, { method: 'POST', body, ...options }),
+
+  put: <T>(endpoint: string, body: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    apiRequest<T>(endpoint, { method: 'PUT', body, ...options }),
+
+  del: <T>(endpoint: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    apiRequest<T>(endpoint, { method: 'DELETE', ...options }),
+};
