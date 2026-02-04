@@ -1,9 +1,12 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import ChatIcon from "@/components/common/ChatIcon";
+import Toast from '@/components/common/Toast';
 import Link from 'next/link';
 
 export default function LandingPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [chatToast, setChatToast] = useState<string | null>(null);
 
   // Particle animation
   useEffect(() => {
@@ -245,6 +248,28 @@ export default function LandingPage() {
         <footer className="border-t border-white/10 py-10 text-center text-white/50">
           © {new Date().getFullYear()} TODOX | Built by Fareaa Faisal
         </footer>
+        
+{/* Floating chatbot icon */}
+<div className="fixed bottom-6 right-6 z-50">
+  <ChatIcon
+    onClick={() => {
+      if (!localStorage.getItem('token')) {
+        setChatToast("Please Sign In first to access the chatbot");
+      }
+    }}
+    isOpen={false}
+  />
+</div>
+
+{/* Toast for chatbot warning */}
+{chatToast && (
+  <Toast
+    message={chatToast}
+    variant="error" // red or colorful error style
+    onClose={() => setChatToast(null)}
+  />
+)}
+
       </main>
     </div>
   );

@@ -250,6 +250,8 @@ const deleteTask = async (task: Task) => {
       )}
 
       {toastMessage && <Toast message={toastMessage} variant={toastVariant} onClose={() => setToastMessage(null)} />}
+   
+
     </div>
   );
 }
