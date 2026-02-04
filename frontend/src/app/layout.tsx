@@ -1,4 +1,5 @@
 'use client';
+
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import React, { useState } from 'react';
@@ -11,23 +12,19 @@ const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin']
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const { isAuthenticated, userId } = useAuth();
-
-  const toggleChat = () => setIsChatOpen(!isChatOpen);
-
-  const numericUserId = userId ? Number(userId) : undefined;
+  const { isAuthenticated } = useAuth();
 
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
 
-        {isAuthenticated && numericUserId ? (
+        {isAuthenticated && (
           <>
-            <ChatIcon onClick={toggleChat} isOpen={isChatOpen} />
-            <ChatBot isOpen={isChatOpen} onClose={toggleChat} userId={numericUserId} />
+            <ChatIcon onClick={() => setIsChatOpen(!isChatOpen)} isOpen={isChatOpen} />
+            <ChatBot isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
           </>
-        ) : null}
+        )}
       </body>
     </html>
   );

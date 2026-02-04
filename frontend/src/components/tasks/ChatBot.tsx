@@ -1,7 +1,7 @@
 'use client';
+
 import React, { useState, useEffect, useRef } from 'react';
-import { sendMessage } from '../../lib/chatApi'; // Adjust path if needed
-import { useAuth } from '../../hooks/useAuth';
+import { sendMessage } from '../../lib/chatApi';
 
 interface ChatBotProps {
   isOpen: boolean;
@@ -11,108 +11,66 @@ interface ChatBotProps {
 interface Message {
   sender: 'user' | 'ai';
   text: string;
-  tool_calls?: Array<{ tool_name: string; args: Record<string, any> }>;
 }
 
 const ChatBot: React.FC<ChatBotProps> = ({ isOpen, onClose }) => {
-  const { isAuthenticated, userId } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [conversationId, setConversationId] = useState<number | undefined>(undefined);
+  const [conversationId, setConversationId] = useState<number>();
   const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollToBottom();
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   if (!isOpen) return null;
 
-  if (!isAuthenticated || !userId) {
-    return (
-      <div className="fixed bottom-20 right-4 w-80 h-32 bg-white rounded-lg shadow-lg flex flex-col justify-center items-center z-50">
-        <p className="text-gray-700 text-center px-4">Please log in to use the AI Chatbot.</p>
-        <button onClick={onClose} className="mt-2 text-blue-500 hover:text-blue-700">Close</button>
-      </div>
-    );
-  }
+  const send = async () => {
+    if (!inputMessage.trim()) return;
 
-  const handleSendMessage = async () => {
-    if (inputMessage.trim() === '' || isLoading) return;
-
-    const userMessage: Message = { sender: 'user', text: inputMessage };
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages(m => [...m, { sender: 'user', text: inputMessage }]);
     setInputMessage('');
     setIsLoading(true);
 
     try {
-      const response = await sendMessage(inputMessage, conversationId);
-
-      setConversationId(response.conversation_id);
-
-      const aiMessage: Message = {
-        sender: 'ai',
-        text: response.response,
-        tool_calls: response.tool_calls,
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-    } catch (error: any) {
-      const errorMessage: Message = {
-        sender: 'ai',
-        text: `Error: ${error.message || 'Unknown error occurred.'}`,
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      const res = await sendMessage(inputMessage, conversationId);
+      setConversationId(res.conversation_id);
+      setMessages(m => [...m, { sender: 'ai', text: res.response }]);
+    } catch (e: any) {
+      setMessages(m => [...m, { sender: 'ai', text: e.message }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') handleSendMessage();
-  };
-
   return (
     <div className="fixed bottom-20 right-4 w-80 h-96 bg-white rounded-lg shadow-lg flex flex-col z-50">
-      <div className="flex justify-between items-center p-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-700">AI Todo Chatbot</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-          X
-        </button>
+      <div className="p-3 border-b flex justify-between">
+        <b className='text-black'>AI Todo Chatbot</b>
+        <button onClick={onClose}>✕</button>
       </div>
+
       <div className="flex-1 p-3 overflow-y-auto">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex mb-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[70%] p-2 rounded-lg ${msg.sender === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'}`}>
-              {msg.text}
+        {messages.map((m, i) => (
+          <div key={i} className={m.sender === 'user' ? 'text-right' : 'text-left'}>
+            <div className="inline-block bg-blue-400 p-2 rounded my-1 text-white">
+              {m.text}
             </div>
           </div>
         ))}
-        {isLoading && (
-          <div className="flex justify-start mb-2">
-            <div className="max-w-[70%] p-2 rounded-lg bg-gray-200 text-gray-800">Thinking...</div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+        {isLoading && <div className="text-gray-500 bg-blue-400 rounded-lg">Thinking...</div>}
+        <div ref={endRef} />
       </div>
-      <div className="p-3 border-t border-gray-200 flex">
+
+      <div className="p-3 border-t flex">
         <input
-          type="text"
-          className="flex-1 border border-gray-300 rounded-l-lg p-2 focus:outline-none text-black"
-          placeholder="Type your message..."
           value={inputMessage}
-          onChange={(e) => setInputMessage(e.target.value)}
-          onKeyPress={handleKeyPress}
-          disabled={isLoading}
+          onChange={e => setInputMessage(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          className="flex-1 border p-2 text-black rounded-l"
         />
-        <button
-          onClick={handleSendMessage}
-          className="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-r-lg"
-          disabled={isLoading}
-        >
+        <button onClick={send} className="bg-blue-500 text-white px-3">
           Send
         </button>
       </div>

@@ -1,26 +1,37 @@
-import cohere
 import os
-from dotenv import load_dotenv
+import cohere
+import traceback
+from typing import List, Dict, Optional
+
 
 class CohereService:
     def __init__(self):
-        load_dotenv()
-        cohere_api_key = os.getenv("COHERE_API_KEY")
-        if not cohere_api_key:
-            raise ValueError("COHERE_API_KEY is not set in the environment variables.")
-        self.co = cohere.Client(cohere_api_key)
+        api_key = os.getenv("COHERE_API_KEY")
+        if not api_key:
+            raise RuntimeError("COHERE_API_KEY is missing")
 
-    def generate_response(self, prompt: str) -> str:
-        # This is a basic implementation. More sophisticated prompting,
-        # conversation history, and tool calling logic will be handled by the agent.
-        response = self.co.generate(
-            model='command-r', # Using 'command-r' as a capable model, could be 'xlarge' or others.
-            prompt=prompt,
-            max_tokens=150,
-            temperature=0.7,
-            num_generations=1,
-        )
-        if response.generations:
-            return response.generations[0].text
-        return "I'm sorry, I couldn't generate a response."
-        return "I'm sorry, I couldn't generate a response."
+        self.co = cohere.Client(api_key)
+
+    def generate_response(
+        self,
+        prompt: str,
+        chat_history: Optional[List[Dict[str, str]]] = None
+    ) -> str:
+        try:
+            response = self.co.chat(
+                model="command-r7b-12-2024",  # ✅ FREE + LIVE
+                message=prompt,
+                chat_history=chat_history or [],
+                temperature=0.3,
+                max_tokens=400,
+            )
+
+            return response.text
+
+        except Exception:
+            print("❌ COHERE ERROR:")
+            traceback.print_exc()
+            return (
+                "I'm having trouble responding right now. "
+                "Please try again in a moment."
+            )

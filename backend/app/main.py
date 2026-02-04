@@ -1,5 +1,5 @@
-# backend/app/main.py
-from fastapi import FastAPI, Request, HTTPException, Depends, status
+# main.py
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -7,6 +7,9 @@ from typing import Optional, List, Dict, Any
 from sqlmodel import Session, select
 from datetime import datetime
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from .core.config import settings
 from .core.database import get_session
@@ -14,6 +17,8 @@ from .routers import auth, tasks
 from .api.deps import get_current_user
 from .models.user import User
 from .models.conversation_message import Conversation, Message
+from .services.cohere_service import CohereService
+from .services.agent_service import AgentService
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -29,11 +34,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount routers
+# Routers
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth")
 app.include_router(tasks.router, prefix=f"{settings.API_V1_STR}")
 
-# --- Chatbot Endpoint ---
+
+# -----------------------
+# Chatbot Endpoint
+# -----------------------
 class ChatRequest(BaseModel):
     conversation_id: Optional[int] = None
     message: str
@@ -50,6 +58,8 @@ async def chat_with_bot(
     current_user: User = Depends(get_current_user),
 ):
     user_id = current_user.id
+    cohere_service_instance = CohereService()
+    agent_service_instance = AgentService(cohere_service_instance, session)
 
     # Fetch or create conversation
     conversation = None
@@ -57,54 +67,75 @@ async def chat_with_bot(
         conversation = session.get(Conversation, request.conversation_id)
         if not conversation or conversation.user_id != user_id:
             raise HTTPException(status_code=404, detail="Conversation not found")
-
     if not conversation:
         conversation = Conversation(user_id=user_id)
         session.add(conversation)
         session.commit()
         session.refresh(conversation)
 
+    # Fetch conversation history
+    messages = session.exec(
+        select(Message).where(Message.conversation_id == conversation.id).order_by(Message.timestamp)
+    ).all()
+    conversation_history = [{"sender_type": m.sender_type, "content": m.content} for m in messages]
+
     # Save user message
-    user_message_obj = Message(
+    user_msg = Message(
         conversation_id=conversation.id,
         sender_type="user",
         content=request.message,
         timestamp=datetime.utcnow()
     )
-    session.add(user_message_obj)
+    session.add(user_msg)
     session.commit()
-    session.refresh(user_message_obj)
+    session.refresh(user_msg)
 
-    # --- TEMPORARY FIXED RESPONSES ---
-    temp_msg = request.message.lower().strip()
+    # Process message with AI
+    agent_response_text, agent_tool_calls = agent_service_instance.process_message(
+        user_id=user_id,
+        message=request.message,
+        conversation_history=conversation_history
+    )
 
-    if temp_msg == "hi":
-        agent_response_text = "Hello! How can I help you today?"
-        agent_tool_calls = []
-    elif temp_msg == "add a task fold clothes":
-        agent_response_text = "Task 'fold clothes' added!"
-        agent_tool_calls = [{"tool": "add_task", "task": "fold clothes"}]
-    else:
-        agent_response_text = "I am your AI assistant. Say 'hi' or 'add a task ...'."
-        agent_tool_calls = []
+    # Execute tool calls
+    executed_tool_responses = []
+    for tool_call in agent_tool_calls or []:
+        try:
+            result_text = agent_service_instance.execute_tool_call(tool_call, user_id)
+            executed_tool_responses.append({
+                "tool_name": tool_call.get("tool_name", "unknown"),
+                "args": tool_call.get("args", {}),
+                "result": result_text
+            })
+        except Exception as e:
+            executed_tool_responses.append({
+                "tool_name": tool_call.get("tool_name", "unknown"),
+                "args": tool_call.get("args", {}),
+                "error": str(e)
+            })
 
-    # Save AI response
-    ai_message_obj = Message(
+    # Update chatbot response
+    if executed_tool_responses:
+        agent_response_text = executed_tool_responses[0].get("result", agent_response_text)
+
+    # Save AI message
+    ai_msg = Message(
         conversation_id=conversation.id,
         sender_type="ai",
         content=agent_response_text,
         timestamp=datetime.utcnow(),
-        tool_calls=json.dumps(agent_tool_calls) if agent_tool_calls else None
+        tool_calls=json.dumps(executed_tool_responses) if executed_tool_responses else None
     )
-    session.add(ai_message_obj)
+    session.add(ai_msg)
     session.commit()
-    session.refresh(ai_message_obj)
+    session.refresh(ai_msg)
 
     return ChatResponse(
         conversation_id=conversation.id,
         response=agent_response_text,
-        tool_calls=agent_tool_calls
+        tool_calls=executed_tool_responses
     )
+
 
 # Exception handler
 @app.exception_handler(HTTPException)

@@ -167,7 +167,7 @@ const deleteTask = async (task: Task) => {
 
         </header>
 
-        <div className="bg-black/40 backdrop-blur-md border border-white/20 rounded-xl p-4 mb-6 flex flex-wrap gap-4 justify-between items-center">
+        <div className="bg-black/40 backdrop-blur-md border border-white/20 rounded-xl p-4 mb-6 flex flex-wrap gap-4 justify-between items-center scroll-auto">
           <div className="flex gap-2 items-center">
             <label className="text-white font-semibold">Filter:</label>
             <select

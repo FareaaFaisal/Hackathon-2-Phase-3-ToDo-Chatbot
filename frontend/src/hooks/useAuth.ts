@@ -1,57 +1,32 @@
-// frontend/src/hooks/useAuth.ts
-"use client";
-import { useState, useEffect } from 'react';
-import { getAuthToken, removeAuthToken } from '../lib/auth';
+'use client';
 
-const decodeJwt = (token: string): { userId: string | null } => {
+import { useEffect, useState } from 'react';
+import { getAuthToken } from '../lib/auth';
+
+// Decode JWT (DO NOT REMOVE as you requested)
+const decodeJwt = (token: string): { userId: number | null } => {
   try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    const payload = JSON.parse(jsonPayload);
-    return { userId: payload.sub || payload.user_id || null };
-  } catch (error) {
-    console.error('Error decoding JWT:', error);
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return { userId: payload.sub ? Number(payload.sub) : null };
+  } catch {
     return { userId: null };
   }
 };
 
-interface AuthState {
-  isAuthenticated: boolean;
-  userId: string | null;
-  token: string | null;
-}
-
-export const useAuth = (): AuthState => {
+export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
-    const storedToken = getAuthToken();
-    if (storedToken) {
-      const { userId: decodedUserId } = decodeJwt(storedToken);
-      if (decodedUserId) {
-        setIsAuthenticated(true);
-        setUserId(decodedUserId);
-        setToken(storedToken);
-      } else {
-        removeAuthToken();
-        setIsAuthenticated(false);
-        setUserId(null);
-        setToken(null);
-      }
-    } else {
-      setIsAuthenticated(false);
-      setUserId(null);
-      setToken(null);
+    const token = getAuthToken();
+    if (!token) return;
+
+    const { userId } = decodeJwt(token);
+    if (userId) {
+      setIsAuthenticated(true);
+      setUserId(userId);
     }
   }, []);
 
-  return { isAuthenticated, userId, token };
-};
+  return { isAuthenticated, userId };
+}

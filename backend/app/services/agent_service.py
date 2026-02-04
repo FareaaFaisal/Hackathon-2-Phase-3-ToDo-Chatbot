@@ -1,11 +1,13 @@
+# agent_service.py
 import json
-from typing import List, Optional, Tuple, Dict, Any
-from sqlmodel import Session
+from typing import List, Dict, Any, Optional, Tuple
+
 from fastapi import Depends
+from sqlmodel import Session
+
 from app.core.database import get_session
 from app.services.cohere_service import CohereService
 from app.services import task_service as ts
-from app.models.task import Task
 from app.models.user import User
 
 
@@ -16,109 +18,209 @@ class AgentService:
         self.tool_descriptions = self._get_tool_descriptions()
 
     def _get_tool_descriptions(self) -> str:
-        # This function generates descriptions of the available tools for the LLM.
-        # It's crucial for the LLM to understand what tools it can call and how.
         return """
 Available tools:
-- add_task(title: str, description: Optional[str] = None): Adds a new task for the user.
-- list_tasks(status: Optional[str] = None): Lists tasks for the user. Status can be 'pending' or 'completed'.
-- complete_task(task_id: int): Marks a task as completed.
-- delete_task(task_id: int): Deletes a task.
-- update_task(task_id: int, title: Optional[str] = None, description: Optional[str] = None): Updates an existing task.
 
-Response Format for Tool Calls:
-If a tool needs to be called, respond in JSON format with a 'tool_calls' key.
-Example: {\"tool_calls\": [{\"tool_name\": \"add_task\", \"args\": {\"title\": \"Buy groceries\"}}]}
-If no tool is needed, just respond with a natural language message.
+- add_task(title: str, description: Optional[str] = None)
+- list_tasks(status: Optional[str] = None)   # status = "pending" | "completed"
+- complete_task(task_id: int, title: Optional[str])
+- delete_task(task_id: int, title: Optional[str])
+- update_task(task_id: int, title: Optional[str], description: Optional[str], old_title: Optional[str])
+- show_tasks_overview(status: Optional[str] = None)  # status = "pending", "completed", or None
+
+Tool Call Format (JSON ONLY):
+{
+  "tool_calls": [
+    {
+      "tool_name": "add_task",
+      "args": {
+        "title": "Buy milk",
+        "description": "From store"
+      }
+    }
+  ]
+}
+
+If no tool is required, respond with plain text.
         """
 
-    def process_message(self, user_id: int, message: str, conversation_history: List[Dict[str, str]] = None) -> Tuple[str, List[Dict[str, Any]]]:
+    def process_message(
+        self,
+        user_id: int,
+        message: str,
+        conversation_history: List[Dict[str, str]] = None
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+
         if conversation_history is None:
             conversation_history = []
 
-        # Construct the prompt for Cohere, including tool descriptions and conversation history
-        # The history can help in multi-turn conversations for context
-        full_prompt = (
-            "You are an AI assistant designed to help users manage their to-do tasks. "
-            "You can add, list, complete, delete, and update tasks. "
-            "If a user asks for something outside of task management, politely decline. "
-            "Your responses should be friendly and confirm actions. "
-            "Here are the available tools and expected JSON format for tool calls:\n"
-            f"{self.tool_descriptions}\n"
-            "Conversation History:\n" + 
-            "\n".join([f"{msg['sender_type']}: {msg['content']}" for msg in conversation_history]) +
-            f"\nuser: {message}\n"
-            "assistant: "
+        chat_history = [
+            {"role": "USER" if msg["sender_type"] == "user" else "CHATBOT",
+             "message": msg["content"]}
+            for msg in conversation_history
+        ]
+
+        system_prompt = (
+            "You are a task management assistant.\n"
+            "You help users manage to-do tasks.\n"
+            "Only perform task-related actions.\n"
+            "Use tools ONLY when required.\n"
+            "Respond in JSON when calling tools.\n\n"
+            f"{self.tool_descriptions}"
         )
 
-        cohere_response_text = self.cohere_service.generate_response(full_prompt)
+        # Call Cohere
+        response_text = self.cohere_service.generate_response(
+            prompt=f"{system_prompt}\n\nUser: {message}",
+            chat_history=chat_history
+        )
+
         tool_calls: List[Dict[str, Any]] = []
-        final_response_text = ""
+        final_response = ""
+
+        # Parse JSON tool_calls
+        try:
+            parsed = json.loads(response_text)
+            if isinstance(parsed, dict) and "tool_calls" in parsed:
+                tool_calls = parsed["tool_calls"]
+        except json.JSONDecodeError:
+            final_response = response_text  # plain text fallback
+
+        # Execute all tool calls
+        executed_responses = []
+        remaining_tool_calls = []
+
+        for call in tool_calls:
+            tool_name = call.get("tool_name")
+            # Always return human-readable text for task lists
+            if tool_name in ["list_tasks", "show_tasks_overview"]:
+                executed_responses.append(self.execute_tool_call(call, user_id))
+            else:
+                remaining_tool_calls.append(call)
+
+        # Combine executed responses into one final string
+        if executed_responses:
+            final_response = "\n".join(executed_responses)
+        elif not final_response and remaining_tool_calls:
+            final_response = json.dumps({"tool_calls": remaining_tool_calls}, indent=2)
+
+        return final_response, remaining_tool_calls
+
+    def execute_tool_call(self, call: Dict[str, Any], user_id: int) -> str:
+        """Executes a single tool call and returns human-readable text."""
+        user = self.session.get(User, user_id)
+        if not user:
+            return "User not found."
+
+        tool_name = call.get("tool_name")
+        args = call.get("args", {})
+
+        task = None
+        task_id = args.get("task_id")
+        task_title = args.get("title")
+        old_title = args.get("old_title")
+        description = args.get("description")
+
+        # Lookup task by id, old_title, or fuzzy title
+        if task_id:
+            task = ts.get_task(session=self.session, task_id=task_id, user=user)
+        if not task and old_title:
+            for t in ts.get_tasks(session=self.session, user=user):
+                if t.title.strip().lower() == old_title.strip().lower():
+                    task = t
+                    break
+        if not task and task_title:
+            for t in ts.get_tasks(session=self.session, user=user):
+                if task_title.strip().lower() in t.title.strip().lower() or t.title.strip().lower() in task_title.strip().lower():
+                    task = t
+                    break
 
         try:
-            # Attempt to parse Cohere's response as JSON for tool calls
-            parsed_response = json.loads(cohere_response_text)
-            if "tool_calls" in parsed_response and isinstance(parsed_response["tool_calls"], list):
-                tool_calls = parsed_response["tool_calls"]
-        except json.JSONDecodeError:
-            # If not JSON, it's a natural language response
-            final_response_text = cohere_response_text
-        
-        if tool_calls:
-            for tool_call in tool_calls:
-                tool_name = tool_call.get("tool_name")
-                args = tool_call.get("args", {})
-                
-                user = self.session.get(User, user_id)
-                if not user:
-                    return "Error: User not found.", []
+            if tool_name == "complete_task":
+                if not task:
+                    return "Task not found ❌"
+                ts.update_task(self.session, task, completed=True)
+                return f"Task '{task.title}' marked complete ✅"
 
-                try:
-                    if tool_name == "add_task":
-                        task = ts.create_task(session=self.session, user=user, title=args.get("title"), description=args.get("description"))
-                        final_response_text = f"Task '{task.title}' added successfully with ID {task.id} ✅"
-                    elif tool_name == "list_tasks":
-                        tasks = ts.get_tasks(session=self.session, user=user, completed=(args.get("status") == "completed" if args.get("status") else None))
-                        if tasks:
-                            final_response_text = "Here are your tasks:\n" + "\n".join([
-                                f"- ID: {t.id}, Title: {t.title}, Status: {'Completed' if t.completed else 'Pending'}" for t in tasks
-                            ])
-                        else:
-                            final_response_text = "You have no tasks matching that criteria."
-                    elif tool_name == "complete_task":
-                        task = ts.get_task(session=self.session, user=user, task_id=args.get("task_id"))
-                        if not task:
-                            final_response_text = f"Task with ID {args.get('task_id')} not found ❌"
-                        else:
-                            ts.update_task(session=self.session, task=task, completed=True)
-                            final_response_text = f"Task '{task.title}' (ID: {task.id}) marked as complete ✅"
-                    elif tool_name == "delete_task":
-                        task = ts.get_task(session=self.session, user=user, task_id=args.get("task_id"))
-                        if not task:
-                            final_response_text = f"Task with ID {args.get('task_id')} not found ❌"
-                        else:
-                            ts.delete_task(session=self.session, task=task)
-                            final_response_text = f"Task '{task.title}' (ID: {task.id}) deleted successfully."
-                    elif tool_name == "update_task":
-                        task = ts.get_task(session=self.session, user=user, task_id=args.get("task_id"))
-                        if not task:
-                            final_response_text = f"Task with ID {args.get('task_id')} not found ❌"
-                        else:
-                            ts.update_task(session=self.session, task=task, title=args.get("title"), description=args.get("description"))
-                            final_response_text = f"Task '{task.title}' (ID: {task.id}) updated successfully."
-                    else:
-                        final_response_text = "I'm sorry, I don't know how to perform that action."
-                except Exception as e:
-                    final_response_text = f"An error occurred while processing your request: {e}"
-        
-        if not final_response_text and not tool_calls:
-            final_response_text = "I'm sorry, I didn't understand your request. I can only help with task management."
+            elif tool_name == "add_task":
+                task = ts.create_task(
+                    session=self.session,
+                    user=user,
+                    title=task_title,
+                    description=description
+                )
+                return f"Task '{task.title}' added successfully ✅"
 
-        return final_response_text, tool_calls
+            elif tool_name == "delete_task":
+                if not task:
+                    return "Task not found ❌"
+                ts.delete_task(self.session, task)
+                return f"Task '{task.title}' deleted 🗑️"
 
-# Dependency for AgentService
+            elif tool_name == "update_task":
+                if not task:
+                    return "Task not found ❌"
+                ts.update_task(
+                    self.session,
+                    task,
+                    title=task_title or task.title,
+                    description=description if description is not None else task.description
+                )
+                return f"Task '{task.title}' updated ✏️"
+
+            elif tool_name in ["list_tasks", "show_tasks_overview"]:
+                # Always return human-readable list
+                status = args.get("status")  # "completed", "pending", or None
+                return self.get_tasks_overview(user_id=user.id, filter_status=status)
+
+            else:
+                return "Unknown tool requested."
+
+        except Exception as e:
+            return f"Error executing tool: {e}"
+
+    # -------------------------------
+    # Human-readable tasks helper
+    # -------------------------------
+    def get_tasks_overview(self, user_id: int, filter_status: Optional[str] = None) -> str:
+        user = self.session.get(User, user_id)
+        if not user:
+            return "User not found."
+
+        # Determine filter
+        if filter_status == "completed":
+            completed_flag = True
+        elif filter_status == "pending":
+            completed_flag = False
+        else:
+            completed_flag = None  # all tasks
+
+        tasks = ts.get_tasks(session=self.session, user=user, completed=completed_flag)
+        if not tasks:
+            if filter_status == "completed":
+                return "You have no completed tasks."
+            elif filter_status == "pending":
+                return "You have no pending tasks."
+            return "You have no tasks."
+
+        # Human-friendly list
+        header = {
+            "completed": "Your completed tasks:",
+            "pending": "Your pending tasks:",
+            None: "All your tasks:"
+        }[filter_status]
+
+        lines = [
+            f"- {t.id}: {t.title} ({'✅ Completed' if t.completed else '❌ Pending'})"
+            for t in tasks
+        ]
+
+        return header + "\n" + "\n".join(lines)
+
+
+# Dependency injection
 def get_agent_service(
-    cohere_service: CohereService,
-    session: Session = Depends(get_session) # Assuming get_session is available and provides Session
+    cohere_service: CohereService = Depends(),
+    session: Session = Depends(get_session)
 ) -> AgentService:
     return AgentService(cohere_service, session)
